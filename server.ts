@@ -1,77 +1,39 @@
 import * as protoLoader from "@grpc/proto-loader";
-import express from "express";
-import * as grpc from "grpc";
-
+import grpc from "grpc";
 import { Log } from "./log";
-import {
-    IDeleteOrderRequest,
-    IGetOrderByIdRequest,
-    IGetOrdersRequest,
-    IOrder,
-    IOrders,
-    IPlaceOrderRequest,
-} from "./petstore.spec";
-import { Service } from "./service";
 
-const service: Service = new Service();
-
-protoLoader.load("spec.proto").then((spec) => {
-    const packageDefinition: any = grpc.loadPackageDefinition(spec);
-    const server = new grpc.Server();
-
-    // Server
-    server.addService(packageDefinition.swaggerpetstore.SwaggerPetstoreService.service, {
-        DeleteOrder: (
-            call: grpc.ServerUnaryCall<IDeleteOrderRequest>,
-            callback: (error: grpc.ServiceError | null, value: void) => void) =>
-            GrpcRequestWrapper<IDeleteOrderRequest, void>(service.DeleteOrder, call, callback),
-
-        GetOrderById: (
-            call: grpc.ServerUnaryCall<IGetOrderByIdRequest>,
-            callback: (error: grpc.ServiceError | null, value: IOrder) => void) =>
-            GrpcRequestWrapper<IGetOrderByIdRequest, IOrder>(service.GetOrderById, call, callback),
-
-        GetOrders: (
-            call: grpc.ServerUnaryCall<IGetOrdersRequest>,
-            callback: (error: grpc.ServiceError | null, value: IOrders) => void) =>
-            GrpcRequestWrapper<IGetOrdersRequest, IOrders>(service.GetOrders, call, callback),
-
-        PlaceOrder: (
-            call: grpc.ServerUnaryCall<IPlaceOrderRequest>,
-            callback: (error: grpc.ServiceError | null, value: IOrder) => void) =>
-            GrpcRequestWrapper<IPlaceOrderRequest, IOrder>(service.PlaceOrder, call, callback),
-    });
-    server.bind("localhost:50051", grpc.ServerCredentials.createInsecure());
-    Log.Log("gRPC server running at http://localhost:50051");
-    server.start();
-
-    // Client
-    const client = new packageDefinition.swaggerpetstore.SwaggerPetstoreService("localhost:50051",
-        grpc.credentials.createInsecure());
-    const getOrdersRequest: IGetOrdersRequest = { limit: 10 };
-    client.GetOrders(getOrdersRequest, (err: Error, resp: IOrders) => {
-        if (err) { Log.Log(err); }
-        Log.Log(resp);
-        Log.Log(JSON.stringify(resp));
-    });
-});
-
-const app = express();
-app.get("/orders", (req, res) => HttpRequestWrapper<IGetOrdersRequest, IOrders>(service.GetOrders, req, res));
-app.listen(8081, () => Log.Log("HTTP server running at http://localhost/8081"));
-
-function GrpcRequestWrapper<TReq, TRes>(
-    endpointHandler: (req: TReq) => TRes,
-    call: grpc.ServerUnaryCall<TReq>,
-    callback: (error: grpc.ServiceError | null, value: TRes) => void): void {
-    const response = endpointHandler(call.request);
-    callback(null, response);
+export interface IServerImplementation {
+    [methodName: string]: (err: any, resp: any) => void;
 }
 
-function HttpRequestWrapper<TReq, TRes>(
-    endpointHandler: (req: TReq) => TRes,
-    req: express.Request,
-    res: express.Response) {
-    const response = endpointHandler(req.body);
-    res.status(200).send(response);
+export class Server {
+    public static readonly SERVER_PORT: number = 9090;
+    private readonly grpcServer: grpc.Server;
+
+    constructor(protoFile: string, packageName: string[], serviceName: string, implementation: IServerImplementation) {
+        const options: protoLoader.Options = {
+            defaults: true,
+            enums: String,
+            keepCase: true,
+            longs: String,
+            oneofs: true,
+        };
+        const packageDefinition = protoLoader.loadSync(protoFile, options);
+        const protoDescriptor = grpc.loadPackageDefinition(packageDefinition);
+        let protoPackage: any = protoDescriptor;
+        packageName.forEach((packagePath) => protoPackage = protoPackage[packagePath]);
+
+        this.grpcServer = new grpc.Server();
+        this.grpcServer.addService(protoPackage[serviceName].service, implementation);
+        this.grpcServer.bind(`0.0.0.0:${Server.SERVER_PORT}`, grpc.ServerCredentials.createInsecure());
+    }
+
+    public start = (): void => {
+        this.grpcServer.start();
+        Log.info(`Server started on port ${Server.SERVER_PORT}`);
+    }
+
+    public tryShutdown = (): void => {
+        this.grpcServer.tryShutdown(() => Log.info("Server stopped"));
+    }
 }

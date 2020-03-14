@@ -1,0 +1,22 @@
+
+### Echo
+POST http://localhost:8080/echo-service/v1/echo
+header-name: header value
+x-custom-header1: 1
+x-custom-header2: 2
+x-custom-header3: 3
+x-custom-header4: 4
+Authorization: Bearer tokennn
+
+{
+    "message": "echo message"
+}
+
+
+### Echo backwards
+POST http://localhost:8080/echo-service/v1/echo-backwards
+# header name: header value
+
+{
+    "message": "hello echo"
+}
